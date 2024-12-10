@@ -1,0 +1,19 @@
+NetWatch is a lightweight Python-based desktop application designed to monitor network performance in real time. It provides users with critical insights into download/upload speeds, latency, and more, with an easy-to-read graph and user-friendly interface.
+
+Features
+Real-time Network Statistics:
+View live download and upload speeds in Mbps.
+Monitor network latency in milliseconds.
+Performance Graph:
+Displays real-time trends for network performance.
+Ping Utility:
+Manually ping a user-specified server or website and view the response time.
+Customizable Settings:
+A dedicated panel for additional features and tools.
+Requirements
+Python 3.6+
+Libraries:
+PySide6
+matplotlib
+ping3
+psutil
