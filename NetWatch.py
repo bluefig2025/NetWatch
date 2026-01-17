@@ -1,7 +1,7 @@
 import sys
 import ctypes
 import subprocess
-from PySide6.QtWidgets import QApplication, QMainWindow, QLabel, QVBoxLayout, QWidget, QDockWidget, QFormLayout, QPushButton, QLineEdit
+from PySide6.QtWidgets import QApplication, QMainWindow, QLabel, QVBoxLayout, QWidget, QDockWidget, QFormLayout, QPushButton, QLineEdit, QSpinBox
 from PySide6.QtCore import QTimer, Qt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -27,10 +27,12 @@ def main():
     sys.exit(app.exec())
 
 class NetWatch(QMainWindow):
-    VERSION = "1.0"
+    VERSION = "1.1"
+    DEFAULT_PING_TARGET = "8.8.8.8"
+    MAX_POINTS = 60
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("NetWatch - Network Performance Monitor v1.0")
+        self.setWindowTitle(f"NetWatch - Network Performance Monitor v{self.VERSION}")
         self.setGeometry(100, 100, 800, 600)
 
         self.download_speed_label = QLabel("Download Speed: 0.00 Mbps")
@@ -71,6 +73,7 @@ class NetWatch(QMainWindow):
         self.timer.timeout.connect(self.update_stats)
         self.timer.start(1000)
         self.elapsed_time = 0
+        self.statusBar().showMessage("Monitoring started.")
 
     def create_more_panel(self):
         self.more_dock = QDockWidget("More", self)
@@ -86,6 +89,17 @@ class NetWatch(QMainWindow):
         self.ping_button.clicked.connect(self.ping_server)
         more_layout.addRow(self.ping_button)
 
+        self.clear_graph_button = QPushButton("Clear Graph")
+        self.clear_graph_button.clicked.connect(self.reset_graph)
+        more_layout.addRow(self.clear_graph_button)
+
+        self.interval_spinbox = QSpinBox()
+        self.interval_spinbox.setRange(1, 10)
+        self.interval_spinbox.setValue(1)
+        self.interval_spinbox.setSuffix(" s")
+        self.interval_spinbox.valueChanged.connect(self.update_interval)
+        more_layout.addRow("Update Interval:", self.interval_spinbox)
+
         self.server_input = QLineEdit()
         self.server_input.setPlaceholderText("Enter server address")
         more_layout.addRow("Server:", self.server_input)
@@ -98,17 +112,43 @@ class NetWatch(QMainWindow):
         self.addDockWidget(Qt.RightDockWidgetArea, self.more_dock)
 
     def ping_server(self):
-        server = self.server_input.text()
+        server = self.server_input.text().strip()
         if not server:
             self.ping_result_label.setText("Ping Result: No server address entered.")
             return
 
-        latency = ping(server, timeout=2)
-        if latency is None:
+        latency_ms = self.measure_latency(server, timeout=2)
+        if latency_ms is None:
             self.ping_result_label.setText(f"Ping Result: Failed to reach {server}.")
         else:
-            self.ping_result_label.setText(f"Ping Result: {latency * 1000:.2f} ms to {server}.")
+            self.ping_result_label.setText(f"Ping Result: {latency_ms:.2f} ms to {server}.")
         self.addDockWidget(Qt.RightDockWidgetArea, self.more_dock)
+
+    def measure_latency(self, server, timeout=1):
+        try:
+            latency = ping(server, timeout=timeout)
+        except Exception:
+            return None
+
+        if latency is None:
+            return None
+        return latency * 1000
+
+    def update_interval(self, value):
+        self.timer.setInterval(value * 1000)
+        self.statusBar().showMessage(f"Update interval set to {value} second(s).")
+
+    def reset_graph(self):
+        self.elapsed_time = 0
+        self.time_data.clear()
+        self.download_data.clear()
+        self.upload_data.clear()
+        self.graph_ax.clear()
+        self.graph_ax.set_title("Network Performance")
+        self.graph_ax.set_xlabel("Time (s)")
+        self.graph_ax.set_ylabel("Speed (Mbps)")
+        self.graph_canvas.draw()
+        self.statusBar().showMessage("Graph cleared.")
 
     def update_stats(self):
         current_counters = psutil.net_io_counters()
@@ -118,21 +158,20 @@ class NetWatch(QMainWindow):
         download_speed = (download_bytes * 8) / 1_000_000
         upload_speed = (upload_bytes * 8) / 1_000_000
 
-        latency = ping("8.8.8.8", timeout=1)
-        latency = latency * 1000 if latency else -1
+        latency = self.measure_latency(self.DEFAULT_PING_TARGET, timeout=1)
 
         self.previous_counters = current_counters
 
         self.download_speed_label.setText(f"Download Speed: {download_speed:.2f} Mbps")
         self.upload_speed_label.setText(f"Upload Speed: {upload_speed:.2f} Mbps")
-        self.latency_label.setText(f"Latency: {latency:.2f} ms" if latency != -1 else "Latency: N/A")
+        self.latency_label.setText(f"Latency: {latency:.2f} ms" if latency is not None else "Latency: N/A")
 
         self.elapsed_time += 1
         self.time_data.append(self.elapsed_time)
         self.download_data.append(download_speed)
         self.upload_data.append(upload_speed)
 
-        if len(self.time_data) > 60:
+        if len(self.time_data) > self.MAX_POINTS:
             self.time_data.pop(0)
             self.download_data.pop(0)
             self.upload_data.pop(0)
